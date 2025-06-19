@@ -32,10 +32,17 @@ var ErrInvalidVersion = errors.New("HTTP-version must be HTTP/1.1")
 
 const bufferSize = 8
 
+// @@@ 예시 따라서 Request의 State 필드에 들어갈 값 const 지정
+const requestStateInitialized = 0
+const requestStateDone = 1
+
+// @@@ 예시 따라서 crlf도 const 지정
+const crlf = "\r\n"
+
 // io.Reader를 받아 HTTP request를 파싱하는 함수
 func RequestFromReader(reader io.Reader) (*Request, error) {
 	// 파싱 완료된 데이터를 담을 구조체 선언
-	req := Request{State: 0}
+	req := Request{State: requestStateInitialized}
 
 	// 첫단계에서는 전체 데이터를 한꺼번에 메모리에 올려도 문제 없으므로
 	// io.ReadAll 사용
@@ -51,12 +58,20 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	bytesRead := 0
 	bytesParsed := 0
 
-	for req.State != 1 { // req.State == 1 즉 파싱 완료가 되기 전까지 루프 반복
+	for req.State != requestStateDone { // req.State == 1 즉 파싱 완료가 되기 전까지 루프 반복
 		chunk := make([]byte, 8)
 		// @@@@@ 과제 tips에서는 chunk를 따로 만들지 않고
 		// @@@@@ reader.Read(buffer[bytesRead:])
 		// @@@@@ 그대신 Read하기 전에 buffer가 가득찬지 확인하고 가득찬 경우
 		// @@@@@ 크키가 2배인 새 버퍼를 만들고 거기에 구 buffer를 복사한다
+		// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+		// 일반적으로는 const bufferSize = 8 와 같이 버퍼 크기를 매우 작은 값으로 두기 보단
+		// 1024, 4096과 같은 값을 사용하지만
+		// 여기서는 1~3바이트 조각으로 들어오는 테스트 케이스들을 테스트 하기 위해 작은 값으로 둔 상태
+		// 일반적인 케이스처럼 버퍼 크기를 키울 경우 매번 chunk를 생성하기보다는
+		// 과제 tips처럼 Read에 buffer를 넣는 방식으로 바꾸는게 좋아 보임
+		// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
 		n, err := reader.Read(chunk)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -99,7 +114,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 					return nil, ErrNotParsed
 				}
 
-				req.State = 1
+				req.State = requestStateDone
 				break
 			}
 			return nil, fmt.Errorf("error reading io reader: %w", err)
@@ -145,8 +160,8 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 
 // request의 state에 따라 파싱을 진행할지 안할지 결정하는 함수
 func (r *Request) parse(data []byte) (int, error) {
-	if r.State != 0 {
-		if r.State == 1 {
+	if r.State != requestStateInitialized {
+		if r.State == requestStateDone {
 			return 0, ErrInvalidState
 		}
 		return 0, ErrUnknownState
@@ -164,22 +179,22 @@ func (r *Request) parse(data []byte) (int, error) {
 
 	// 파싱 완료 state로 변경
 	// @@@ 지금은 request line만 입력되면 1로 변경해 뒷부분이 읽히지 않고 버려진다
-	r.State = 1
+	r.State = requestStateDone
 	return n, nil
 }
 
 // raw 스트링을 받아서 그 안의 request line을 찾아내는 함수
 func parseRequestLine(raw string, req *Request) (int, error) {
-	// \r\n이 포함되어 있지않으면 chunk를 더 읽어서 raw에 붙인 후 다시 이 함수를 실행하도록 일단 반환
-	if !strings.Contains(raw, "\r\n") {
+	// crlf("\r\n")이 포함되어 있지않으면 chunk를 더 읽어서 raw에 붙인 후 다시 이 함수를 실행하도록 일단 반환
+	if !strings.Contains(raw, crlf) {
 		return 0, nil
 		// 단순히 chunk를 더 읽고 다시 이 함수를 호출해야한다고 알 수 있도록
 		// 0, nil 반환
 		// 그 외의 경우는 raw 스트링의 길이를 반환
 	}
 
-	// HTTP는 각 줄 구분을 CRLF(\r\n)으로 한다
-	lines := strings.Split(raw, "\r\n")
+	// HTTP는 각 줄 구분을 CRLF("\r\n")으로 한다
+	lines := strings.Split(raw, crlf)
 
 	// 이 함수는 request-line만 처리
 	// request-line은 공백 한칸으로 3 파트 분리
