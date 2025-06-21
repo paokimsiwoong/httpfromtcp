@@ -2,6 +2,7 @@ package headers
 
 import (
 	"errors"
+	"regexp"
 	"strings"
 	"unicode"
 )
@@ -15,7 +16,8 @@ const crlf = "\r\n"
 // 에러 변수 선언
 var ErrMissingColon = errors.New("header line must contain colon")
 var ErrMissingName = errors.New("header line must contain header name")
-var ErrInvalidName = errors.New("there must be no spaces betweern colon and header name")
+var ErrInvalidName = errors.New("header name contain invalid character")
+var ErrInvalidWSBetweenNameAndColon = errors.New("there must be no spaces betweern colon and header name")
 
 // var ErrMultipleColon = errors.New("there must be one and only one colon")
 // @@@ Host: localhost:42069\r\n 와 같이 값에 :가 또 들어갈 수도 있다
@@ -36,8 +38,8 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	// @@@ 고에서 map은 실제 데이터가 위치한 메모리 주소를 저장하는 참조타입
 	// // @@@ ==> h를 통해 맵 내부의 데이터를 변경하면 원본 맵이 가리키는 데이터들도 변함
 	// // // @@@ slice, map, channel, function, interface : 참조 타입 (referece type)
-
 	strData := string(data)
+
 	// CRLF를 포함하고 있는지 확인
 	if !strings.Contains(strData, crlf) {
 		// 없으면 데이터를 더 읽은 후 다시 이 함수를 호출하도록 알리는 내용을 담아 반환 (0 바이트 파싱됨, 파싱 미완효, 에러 nil)
@@ -67,7 +69,7 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	// if line[colonIdx-1] == ' ' { @@@ ' '로 바이트 타입은 일치하지만 공백에 해당하는 \t와 같은 케이스도 커버하도록 변경
 	if unicode.IsSpace(rune(line[colonIdx-1])) {
 		// unicode.IsSpace(r)는 유니코드에서 공백으로 정의된 모든 문자를 판별
-		return 0, false, ErrInvalidName
+		return 0, false, ErrInvalidWSBetweenNameAndColon
 	}
 	// 공백 제거
 	trimmed := strings.ReplaceAll(line, " ", "")
@@ -88,10 +90,40 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 
 	// 헤더 이름과 값을 구분하는 첫번쨰 : 인덱스 찾기
 	colonIdx = strings.Index(trimmed, ":")
+
+	headerName := trimmed[:colonIdx]
+	headerValue := trimmed[colonIdx+1:]
+
+	// @@@ field name(헤더 네임)이 RFC 9110에서 정의한 가능한 문자 범위를 벗어나는 경우 예외 처리
+	// // @@@ 알파벳 대,소문자, 0-9, !, #, $, %, &, ', *, +, -, ., ^, _, `, |, ~ 만 가능
+	if ContainsInvalidChar(headerName) {
+		return 0, false, ErrInvalidName
+	}
+
 	// 헤더 맵에 입력
-	h[trimmed[:colonIdx]] = trimmed[colonIdx+1:]
+	h[strings.ToLower(headerName)] = headerValue
+	// @@@ 맵에 들어가는 key는 대문자를 소문자로 변경
+	// // @@@ value는 그대로
 
 	// 파싱 완료 후 처리된 바이트 길이 반환
 	return len(line) + 2, false, nil
 	// @@@ 헤더 부분 + CRLF 2바이트
+}
+
+// @@@ Perp AI 답변 수정(raw string literal 에러)
+// 알파벳 대,소문자, 0-9, !, #, $, %, &, ', *, +, -, ., ^, _, `, |, ~ 를 벗어나는 문자가 있으면
+// true 반환
+func ContainsInvalidChar(s string) bool {
+	// 허용 문자 집합: A-Z, a-z, 0-9, !#$%&'*+-.^_`|~
+	// pattern := `^[A-Za-z0-9!#$%&'*+\-.\^_`\|~]+$`
+	// @@@ golang의 raw string literal(`~~`)안에는 `포함 불가
+	pattern := "^[A-Za-z0-9!#$%&'*+\\-.^_`|~]+$"
+	// @@@ [] 브래킷 안에서 대부분의 정규 표현식 예약어는 단순 문자 취급되지만
+	// @@@ - (A-Z 와 같이 [] 안에서0 범위 지정에 사용),
+	// @@@ ] (브래킷 닫기 대신 문자 ]를 쓰려면 이스케이프 필요),
+	// @@@ ^ ([^abc] 같이 [] 안의 문자열 맨앞에 오면 그 문자열의 부정이 된다, 현재는 ^가 맨 앞이 아니므로 이스케이프 불필요),
+	// @@@ \ (이스케이프 기능을 수행, 이스케이프 대신 \ 자체를 포함하려면 \\, golang 문자열에 들어가려면 \\\\)
+	// // @@@ 현재는 이스케이프 기능으로 사용하므로 \ 한개지만 golang 문자열에 들어가려면 \\ 두개 필요
+	matched, _ := regexp.MatchString(pattern, s)
+	return !matched
 }

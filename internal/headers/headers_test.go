@@ -14,7 +14,8 @@ func TestHeaderLineParse(t *testing.T) {
 	n, done, err := headers.Parse(data)
 	require.NoError(t, err)
 	require.NotNil(t, headers)
-	assert.Equal(t, "localhost:42069", headers["Host"])
+	// assert.Equal(t, "localhost:42069", headers["Host"]) // @@@ 맵에는 소문자만 들어가도록 변경
+	assert.Equal(t, "localhost:42069", headers["host"])
 	assert.Equal(t, 23, n)
 	assert.False(t, done)
 
@@ -24,8 +25,19 @@ func TestHeaderLineParse(t *testing.T) {
 	n, done, err = headers.Parse(data)
 	require.NoError(t, err)
 	require.NotNil(t, headers)
-	assert.Equal(t, "localhost:42069", headers["Host"])
+	assert.Equal(t, "localhost:42069", headers["host"])
 	assert.Equal(t, 37, n)
+	assert.False(t, done)
+
+	// Test: Valid single header with allowed special characters
+	headers = NewHeaders()
+	data = []byte("-^_`: localhost:42069\r\n\r\n")
+	n, done, err = headers.Parse(data)
+	require.NoError(t, err)
+	require.NotNil(t, headers)
+	// assert.Equal(t, "localhost:42069", headers["Host"]) // @@@ 맵에는 소문자만 들어가도록 변경
+	assert.Equal(t, "localhost:42069", headers["-^_`"])
+	assert.Equal(t, 23, n)
 	assert.False(t, done)
 
 	// Test: Valid 2 headers with existing headers
@@ -34,7 +46,7 @@ func TestHeaderLineParse(t *testing.T) {
 	n, done, err = headers.Parse(data)
 	require.NoError(t, err)
 	require.NotNil(t, headers)
-	assert.Equal(t, "localhost:420", headers["Host"])
+	assert.Equal(t, "localhost:420", headers["host"])
 	assert.Equal(t, 21, n)
 	assert.False(t, done)
 
@@ -52,6 +64,25 @@ func TestHeaderLineParse(t *testing.T) {
 	data = []byte("       Host : localhost:42069       \r\n\r\n")
 	n, done, err = headers.Parse(data)
 	require.Error(t, err)
+	require.ErrorIs(t, err, ErrInvalidWSBetweenNameAndColon)
+	assert.Equal(t, 0, n)
+	assert.False(t, done)
+
+	// Test: Invalid character header
+	headers = NewHeaders()
+	data = []byte("H©st: localhost:42069\r\n\r\n")
+	n, done, err = headers.Parse(data)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrInvalidName)
+	assert.Equal(t, 0, n)
+	assert.False(t, done)
+
+	// Test: Invalid character header2
+	headers = NewHeaders()
+	data = []byte("H@st: localhost:42069\r\n\r\n")
+	n, done, err = headers.Parse(data)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrInvalidName)
 	assert.Equal(t, 0, n)
 	assert.False(t, done)
 
