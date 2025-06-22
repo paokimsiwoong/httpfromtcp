@@ -44,11 +44,29 @@ func TestHeaderLineParse(t *testing.T) {
 	headers = NewHeaders()
 	data = []byte("Host: localhost:420\r\nHost: localhost:42069\r\n\r\n")
 	n, done, err = headers.Parse(data)
+	m, dome, errr := headers.Parse(data[n:]) // @@@ 파싱 완료된 부분 제외하고 다시 파싱
 	require.NoError(t, err)
+	require.NoError(t, errr)
 	require.NotNil(t, headers)
-	assert.Equal(t, "localhost:420", headers["host"])
+	assert.Equal(t, "localhost:420, localhost:42069", headers["host"])
 	assert.Equal(t, 21, n)
+	assert.Equal(t, 23, m)
 	assert.False(t, done)
+	assert.False(t, dome)
+
+	// Test: Valid 2 headers with existing headers 2
+	headers = NewHeaders()
+	data = []byte("Host: localhost:420, localhost:333\r\nHost: localhost:42069\r\n\r\n")
+	n, done, err = headers.Parse(data)
+	m, dome, errr = headers.Parse(data[n:]) // @@@ 파싱 완료된 부분 제외하고 다시 파싱
+	require.NoError(t, err)
+	require.NoError(t, errr)
+	require.NotNil(t, headers)
+	assert.Equal(t, "localhost:420, localhost:333, localhost:42069", headers["host"])
+	assert.Equal(t, 36, n)
+	assert.Equal(t, 23, m)
+	assert.False(t, done)
+	assert.False(t, dome)
 
 	// Test: Valid done
 	headers = NewHeaders()
@@ -77,7 +95,7 @@ func TestHeaderLineParse(t *testing.T) {
 	assert.Equal(t, 0, n)
 	assert.False(t, done)
 
-	// Test: Invalid character header2
+	// Test: Invalid character header 2
 	headers = NewHeaders()
 	data = []byte("H@st: localhost:42069\r\n\r\n")
 	n, done, err = headers.Parse(data)

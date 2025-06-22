@@ -71,8 +71,12 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 		// unicode.IsSpace(r)는 유니코드에서 공백으로 정의된 모든 문자를 판별
 		return 0, false, ErrInvalidWSBetweenNameAndColon
 	}
+	// // @@@ 공백 제거 방식 변경
+	// // // @@@ line에 복수 value 존재시 value 사이에
+	// // // @@@ ,와 공백 한칸으로 구분되어 있으므로
+	// // // @@@ 그 공백은 지우면 안됨
 	// 공백 제거
-	trimmed := strings.ReplaceAll(line, " ", "")
+	// trimmed := strings.ReplaceAll(line, " ", "")
 	// @@@ 공백이 \t와 같이 다른 것일 경우 어떻게 처리할지?
 
 	// @@@ colon : 처리 방식 변경
@@ -89,10 +93,14 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	// h[nameAndValue[0]] = nameAndValue[1]
 
 	// 헤더 이름과 값을 구분하는 첫번쨰 : 인덱스 찾기
-	colonIdx = strings.Index(trimmed, ":")
+	// colonIdx = strings.Index(trimmed, ":")
 
-	headerName := trimmed[:colonIdx]
-	headerValue := trimmed[colonIdx+1:]
+	// headerName := trimmed[:colonIdx]
+	// headerValue := trimmed[colonIdx+1:]
+	// // @@@ 공백 제거 방식 변경
+	headerName := strings.TrimSpace(line[:colonIdx])
+	headerValue := strings.TrimSpace(line[colonIdx+1:])
+	// strings.TrimSpace는 문자열의 앞과 뒤에 붙어있는 공백 제거 (공백 아닌 문자열 사이의 공백은 유지)
 
 	// @@@ field name(헤더 네임)이 RFC 9110에서 정의한 가능한 문자 범위를 벗어나는 경우 예외 처리
 	// // @@@ 알파벳 대,소문자, 0-9, !, #, $, %, &, ', *, +, -, ., ^, _, `, |, ~ 만 가능
@@ -100,10 +108,20 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 		return 0, false, ErrInvalidName
 	}
 
-	// 헤더 맵에 입력
-	h[strings.ToLower(headerName)] = headerValue
 	// @@@ 맵에 들어가는 key는 대문자를 소문자로 변경
-	// // @@@ value는 그대로
+	headerName = strings.ToLower(headerName)
+
+	// header name이 맵에 이미 존재하는지 확인
+	curValue, ok := h[headerName]
+	if ok {
+		// 기존에 존재하는 이름이면 ,
+		h[headerName] = curValue + ", " + headerValue
+		// @@@ RFC 9110에 따르면 값 사이 구분은 ",OWS" 즉 , 한개와 optional white space 한개(optional이지만 표준 권장 사항)
+	} else {
+		// 헤더 맵에 입력
+		h[headerName] = headerValue
+		// // @@@ value는 그대로
+	}
 
 	// 파싱 완료 후 처리된 바이트 길이 반환
 	return len(line) + 2, false, nil
