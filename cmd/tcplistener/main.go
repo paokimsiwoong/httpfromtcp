@@ -66,6 +66,7 @@ func main() {
 			log.Fatalf("error parsing request line: %v", err)
 		}
 
+		// Request line 출력
 		fmt.Printf(
 			`Request line:
 - Method: %s
@@ -76,6 +77,13 @@ func main() {
 			req.RequestLine.RequestTarget,
 			req.RequestLine.HttpVersion,
 		)
+
+		// Headers 출력
+		fmt.Println("Headers:")
+
+		for key, value := range req.Headers {
+			fmt.Printf("- %s: %s\n", key, value)
+		}
 
 		// lineCh := getLinesChannel(curConn)
 
