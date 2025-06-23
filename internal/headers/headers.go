@@ -32,6 +32,7 @@ func NewHeaders() Headers {
 }
 
 // HTTP header 파싱 메소드
+// Parse는 헤더 라인 한번에 한개씩 파싱
 // @@@ golang에서 구조체뿐 아니라 임의의 사용자 정의 타입에 다 메소드를 붙일 수 있다
 func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	// @@@ h는 pass by value로 원본 맵의 복사본이지만
@@ -49,7 +50,8 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	// CRLF로 시작하는지 확인 (헤더 라인들이 끝날 때 \r\n 두번 반복)
 	if strData[:2] == crlf {
 		// 헤더 라인 파싱이 끝났다고 알림
-		return 0, true, nil
+		return 2, true, nil
+		// @@@ \r\n 2바이트
 	}
 
 	// 헤더 라인 분리
