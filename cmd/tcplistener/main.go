@@ -85,6 +85,11 @@ func main() {
 			fmt.Printf("- %s: %s\n", key, value)
 		}
 
+		// Body 출력
+		fmt.Println("Body:")
+
+		fmt.Println(string(req.Body))
+
 		// lineCh := getLinesChannel(curConn)
 
 		// for line := range lineCh { // range 채널 for 루프는 채널이 close 될 때 종료 된다
