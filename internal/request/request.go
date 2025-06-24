@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -13,9 +14,8 @@ import (
 type Request struct {
 	RequestLine RequestLine
 	Headers     headers.Headers
-	// State 가 0이면 초기화 상태
-	// 1이면 파싱 처리 완료
-	State int
+	Body        []byte
+	State       int // 파싱 상태를 알리는 State
 }
 
 type RequestLine struct {
@@ -34,6 +34,9 @@ var ErrInvalidMethod = errors.New("request method must be capital alphabetic cha
 var ErrInvalidVersion = errors.New("HTTP-version must be HTTP/1.1")
 var ErrIncompleteRequest = errors.New("incomplete request")
 var ErrMissingEndofHeaders = errors.New("there must be an additional crlf at the end of headers")
+var ErrIncorrectContentLength = errors.New("actual body length and reported content length are different")
+
+// var ErrInvalidContentLength = errors.New("content length value must be a number(the size of body in bytes)")
 
 const bufferSize = 8
 
@@ -41,6 +44,7 @@ const bufferSize = 8
 const (
 	requestStateInitialized = iota
 	requestStateParsingHeaders
+	requestStateParsingBody
 	requestStateDone
 )
 
@@ -146,6 +150,24 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 					return nil, ErrMissingEndofHeaders
 				}
 
+				// reader를 다 읽었는데도 requestStateParsingBody 상태가 안끝남
+				// (주어진 content length보다 body가 짧음)
+				if req.State == requestStateParsingBody {
+
+					// @@@ parseSingle 함수가 아니라 여기서 body 길이 확인할 경우
+					// length, err := strconv.Atoi(req.Headers.Get("Content-Length"))
+					// if err != nil {
+					// 	return nil, err
+					// }
+
+					// if len(req.Body) == length {
+					// 	req.State = requestStateDone
+					// 	break
+					// }
+
+					return nil, ErrIncorrectContentLength
+				}
+
 				break
 			}
 			return nil, fmt.Errorf("error reading io reader: %w", err)
@@ -191,10 +213,10 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 
 // request의 state에 따라 파싱을 진행할지 안할지 결정하는 함수
 func (r *Request) parse(data []byte) (int, error) {
-	if r.State != requestStateInitialized && r.State != requestStateParsingHeaders {
-		if r.State == requestStateDone {
-			return 0, ErrInvalidState
-		}
+	if r.State == requestStateDone {
+		return 0, ErrInvalidState
+	}
+	if r.State < requestStateInitialized || r.State > requestStateDone {
 		return 0, ErrUnknownState
 	}
 
@@ -249,12 +271,41 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 		}
 		// 헤더 라인 파싱이 끝난 경우
 		if done {
-			r.State = requestStateDone
+			r.State = requestStateParsingBody
 			return n, nil
 		}
 
 		// n == 0 이건 아니건 done이 false이면 똑같이 n, nil 반환
 		return n, nil
+	case requestStateParsingBody:
+		contentLength := r.Headers.Get("Content-Length")
+
+		// Content-Length 헤더가 없으면
+		if contentLength == "" {
+			r.State = requestStateDone
+			return 0, nil
+		}
+
+		// string을 int로 변환
+		length, err := strconv.Atoi(contentLength)
+		if err != nil {
+			return 0, err
+		}
+
+		// 들어온 데이터를 r.Body에 저장
+		r.Body = append(r.Body, data...)
+
+		// 헤더의 Content-Length 값과 r.Body 길이 비교
+		if len(r.Body) > length {
+			return 0, ErrIncorrectContentLength
+		} else if len(r.Body) == length {
+			r.State = requestStateDone
+			// 이번에 들어온 데이터 조각을 더해 len(r.Body) == length 인 상태에서
+			// 추가로 남은 데이터 조각이 있으면?
+		}
+
+		return len(data), nil
+
 	default:
 		return 0, ErrUnknownState
 	}

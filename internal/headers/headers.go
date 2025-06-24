@@ -147,3 +147,11 @@ func ContainsInvalidChar(s string) bool {
 	matched, _ := regexp.MatchString(pattern, s)
 	return !matched
 }
+
+// key 값을 받으면 value를 반환하는 Headers의 메소드
+// (대문자가 포함되어 있어도 소문자로 변환해준다)
+func (h Headers) Get(key string) string {
+	key = strings.ToLower(key)
+
+	return h[key]
+}
