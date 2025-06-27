@@ -61,10 +61,14 @@ func (s *Server) listen() {
 		}
 		// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
-		if !s.closed.Load() {
-			go s.handle(curConn)
-		}
-		// go s.handle(curConn)
+		// Accept 함수 에러처리 수정전에는 서버가 닫히면서 Accept함수가 에러를 발생하면
+		// err != nil && s.closed.Load() 상태가 예외 처리되지 않고 이 go s.handle(curConn) 까지 와서 에러가 발생했기때문에
+		// if !s.closed.Load() 가 필요했었지만
+		// 이제 서버가 종료되면 위에서 break로 빠져나가므로 문제없음
+		// if !s.closed.Load() {
+		// 	go s.handle(curConn)
+		// }
+		go s.handle(curConn)
 	}
 }
 
