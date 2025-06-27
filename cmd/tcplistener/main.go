@@ -42,7 +42,7 @@ func main() {
 	// 즉, 외부에서 접근하려면 :8000처럼 IP를 생략하는 것이 필요합니다.
 	// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 	if err != nil {
-		log.Fatalf("error creating listner: %v", err)
+		log.Fatalf("error creating listener: %v", err)
 	}
 	// @@@ net.Listener 인터페이스도 구현 조건에 close 함수 있음
 	defer listener.Close()
