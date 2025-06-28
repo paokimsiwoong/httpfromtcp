@@ -5,6 +5,8 @@ import (
 	"log"
 	"net"
 	"sync/atomic"
+
+	"github.com/paokimsiwoong/httpfromtcp/internal/response"
 )
 
 type Server struct {
@@ -77,14 +79,19 @@ func (s *Server) handle(conn net.Conn) {
 	// connection 종료 defer
 	defer conn.Close()
 
-	resp := "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello World!"
-
-	n, err := conn.Write([]byte(resp))
+	err := response.WriteStatusLine(conn, response.StatusOK)
 	if err != nil {
-		log.Fatalf("error writing to connection: %v", err)
+		log.Fatalf("error writing status line to connection: %v", err)
 	}
 
-	fmt.Printf("Successfully writes %v bytes to the connection %v\n", n, conn.RemoteAddr())
+	headers := response.GetDefaultHeaders(0)
+
+	err = response.WriteHeaders(conn, headers)
+	if err != nil {
+		log.Fatalf("error writing headers to connection: %v", err)
+	}
+
+	fmt.Printf("Successfully writes to the connection %v\n", conn.RemoteAddr())
 }
 
 // close 함수
