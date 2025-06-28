@@ -50,4 +50,26 @@ func TestStatusLineWrite(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "HTTP/1.1 100 \r\n", writer.data)
 
+	// Test: Default Response
+	writer = &testWriter{
+		data: "",
+	}
+	_ = WriteStatusLine(writer, StatusOK)
+	headers := GetDefaultHeaders(0)
+	require.NotNil(t, headers)
+	err = WriteHeaders(writer, headers)
+	require.NoError(t, err)
+	assert.Equal(t, "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\n", writer.data)
+
+	// Test: Default Response with non-zero content-length
+	writer = &testWriter{
+		data: "",
+	}
+	_ = WriteStatusLine(writer, StatusOK)
+	headers = GetDefaultHeaders(100)
+	require.NotNil(t, headers)
+	err = WriteHeaders(writer, headers)
+	require.NoError(t, err)
+	assert.Equal(t, "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\n", writer.data)
+
 }
