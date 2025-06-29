@@ -1,18 +1,21 @@
 package main
 
 import (
+	"io"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/paokimsiwoong/httpfromtcp/internal/request"
+	"github.com/paokimsiwoong/httpfromtcp/internal/response"
 	"github.com/paokimsiwoong/httpfromtcp/internal/server"
 )
 
 const port = 42069
 
 func main() {
-	server, err := server.Serve(port)
+	server, err := server.Serve(port, handler)
 	if err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}
@@ -33,4 +36,26 @@ func main() {
 	// 신호가 올 때까진 여기서 sigChan이 블락해서 main 함수 종료를 막는다
 	// @@@@@@@@
 	log.Println("Server gracefully stopped")
+}
+
+// request 종류에 따라 알 맞은 처리를 하는 Handler 타입 함수
+func handler(w io.Writer, req *request.Request) *server.HandlerError {
+	switch req.RequestLine.RequestTarget {
+	case "/yourproblem":
+		return &server.HandlerError{
+			StatusCode: response.StatusBadRequest,
+			Message:    []byte("Your problem is not my problem\n"),
+		}
+	case "/myproblem":
+		return &server.HandlerError{
+			StatusCode: response.StatusInternalServerError,
+			Message:    []byte("Woopsie, my bad\n"),
+		}
+	default:
+		_, err := w.Write([]byte("All good, frfr\n"))
+		if err != nil {
+			log.Fatalf("Error writing response body: %v", err)
+		}
+		return nil
+	}
 }

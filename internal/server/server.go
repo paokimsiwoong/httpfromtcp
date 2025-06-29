@@ -1,25 +1,37 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"sync/atomic"
 
+	"github.com/paokimsiwoong/httpfromtcp/internal/request"
 	"github.com/paokimsiwoong/httpfromtcp/internal/response"
 )
 
 type Server struct {
 	port     int
+	handler  Handler
 	listener net.Listener
 	closed   atomic.Bool
 }
 
+// request 처리를 하는 함수들의 타입으로 쓰일 Handler 정의
+type Handler func(w io.Writer, req *request.Request) *HandlerError
+type HandlerError struct {
+	StatusCode response.StatusCode
+	Message    []byte
+}
+
 // Server 구조체를 초기화하고 반환하면서 Server.listen 메소드를 고 루틴으로 시작하는 함수
-func Serve(port int) (*Server, error) {
+func Serve(port int, handler Handler) (*Server, error) {
 	server := Server{
-		port:   port,
-		closed: atomic.Bool{},
+		port:    port,
+		handler: handler,
+		closed:  atomic.Bool{},
 	}
 
 	// tcp listener 생성 및 Server 구조체에 저장
@@ -79,16 +91,40 @@ func (s *Server) handle(conn net.Conn) {
 	// connection 종료 defer
 	defer conn.Close()
 
-	err := response.WriteStatusLine(conn, response.StatusOK)
+	// internal/request의 RequestFromReader를 이용해 conn이 보낸 request 파싱
+	req, err := request.RequestFromReader(conn)
+	if err != nil {
+		log.Fatalf("error parsing request: %v", err)
+	}
+
+	// handler가 response body를 저장할 버퍼 생성
+	buffer := &bytes.Buffer{}
+	// io.Writer를 구현하는건 *bytes.Buffer
+
+	// handler 호출
+	handlerError := s.handler(buffer, req)
+	if handlerError != nil {
+		WriteHandlerError(handlerError, conn)
+		fmt.Printf("Successfully writes handler error to the connection %v\n", conn.RemoteAddr())
+		return
+	}
+
+	err = response.WriteStatusLine(conn, response.StatusOK)
 	if err != nil {
 		log.Fatalf("error writing status line to connection: %v", err)
 	}
 
-	headers := response.GetDefaultHeaders(0)
+	headers := response.GetDefaultHeaders(buffer.Len())
 
 	err = response.WriteHeaders(conn, headers)
 	if err != nil {
 		log.Fatalf("error writing headers to connection: %v", err)
+	}
+
+	// buffer(여기서는 io.Reader 구현체)에 저장된 response body의 내용을 conn(io.Writer)에 저장
+	_, err = io.Copy(conn, buffer)
+	if err != nil {
+		log.Fatalf("error writing response body to connection: %v", err)
 	}
 
 	fmt.Printf("Successfully writes to the connection %v\n", conn.RemoteAddr())
@@ -105,4 +141,24 @@ func (s *Server) Close() error {
 	}
 
 	return nil
+}
+
+// HandlerError 구조체에 적힌 에러 정보를 io.Writer로 쓰는 함수
+func WriteHandlerError(handlerError *HandlerError, w io.Writer) {
+	err := response.WriteStatusLine(w, handlerError.StatusCode)
+	if err != nil {
+		log.Fatalf("error writing status line to connection: %v", err)
+	}
+
+	headers := response.GetDefaultHeaders(len(handlerError.Message))
+
+	err = response.WriteHeaders(w, headers)
+	if err != nil {
+		log.Fatalf("error writing headers to connection: %v", err)
+	}
+
+	_, err = w.Write(handlerError.Message)
+	if err != nil {
+		log.Fatalf("error writing error message to connection: %v", err)
+	}
 }

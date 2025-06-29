@@ -63,7 +63,7 @@ func main() {
 
 		req, err := request.RequestFromReader(curConn)
 		if err != nil {
-			log.Fatalf("error parsing request line: %v", err)
+			log.Fatalf("error parsing request: %v", err)
 		}
 
 		// Request line 출력
