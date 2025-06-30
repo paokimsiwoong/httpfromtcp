@@ -1,12 +1,13 @@
 package main
 
 import (
-	"io"
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
+	"github.com/paokimsiwoong/httpfromtcp/internal/headers"
 	"github.com/paokimsiwoong/httpfromtcp/internal/request"
 	"github.com/paokimsiwoong/httpfromtcp/internal/response"
 	"github.com/paokimsiwoong/httpfromtcp/internal/server"
@@ -38,24 +39,128 @@ func main() {
 	log.Println("Server gracefully stopped")
 }
 
-// request 종류에 따라 알 맞은 처리를 하는 Handler 타입 함수
-func handler(w io.Writer, req *request.Request) *server.HandlerError {
+func handler(w *response.Writer, req *request.Request) {
+	headers := headers.NewHeaders()
+
 	switch req.RequestLine.RequestTarget {
 	case "/yourproblem":
-		return &server.HandlerError{
-			StatusCode: response.StatusBadRequest,
-			Message:    []byte("Your problem is not my problem\n"),
+		err := w.WriteStatusLine(response.StatusBadRequest)
+		if err != nil {
+			log.Printf("error writing status line: %v", err)
+			return
 		}
+
+		body := `<html>
+  <head>
+    <title>400 Bad Request</title>
+  </head>
+  <body>
+    <h1>Bad Request</h1>
+    <p>Your request honestly kinda sucked.</p>
+  </body>
+</html>`
+
+		headers.SetOverride("Content-Length", strconv.Itoa(len(body)))
+		headers.SetOverride("Connection", "close")
+		headers.SetOverride("Content-Type", "text/html")
+
+		err = w.WriteHeaders(headers)
+		if err != nil {
+			log.Printf("error writing headers: %v", err)
+			return
+		}
+
+		_, err = w.WriteBody([]byte(body))
+		if err != nil {
+			log.Printf("error writing body: %v", err)
+			return
+		}
+
 	case "/myproblem":
-		return &server.HandlerError{
-			StatusCode: response.StatusInternalServerError,
-			Message:    []byte("Woopsie, my bad\n"),
+		err := w.WriteStatusLine(response.StatusInternalServerError)
+		if err != nil {
+			log.Printf("error writing status line: %v", err)
+			return
+		}
+
+		body := `<html>
+  <head>
+    <title>500 Internal Server Error</title>
+  </head>
+  <body>
+    <h1>Internal Server Error</h1>
+    <p>Okay, you know what? This one is on me.</p>
+  </body>
+</html>`
+
+		headers.SetOverride("Content-Length", strconv.Itoa(len(body)))
+		headers.SetOverride("Connection", "close")
+		headers.SetOverride("Content-Type", "text/html")
+
+		err = w.WriteHeaders(headers)
+		if err != nil {
+			log.Printf("error writing headers: %v", err)
+			return
+		}
+
+		_, err = w.WriteBody([]byte(body))
+		if err != nil {
+			log.Printf("error writing body: %v", err)
+			return
 		}
 	default:
-		_, err := w.Write([]byte("All good, frfr\n"))
+		err := w.WriteStatusLine(response.StatusOK)
 		if err != nil {
-			log.Fatalf("Error writing response body: %v", err)
+			log.Printf("error writing status line: %v", err)
+			return
 		}
-		return nil
+
+		body := `<html>
+  <head>
+    <title>200 OK</title>
+  </head>
+  <body>
+    <h1>Success!</h1>
+    <p>Your request was an absolute banger.</p>
+  </body>
+</html>`
+
+		headers.SetOverride("Content-Length", strconv.Itoa(len(body)))
+		headers.SetOverride("Connection", "close")
+		headers.SetOverride("Content-Type", "text/html")
+
+		err = w.WriteHeaders(headers)
+		if err != nil {
+			log.Printf("error writing headers: %v", err)
+			return
+		}
+
+		_, err = w.WriteBody([]byte(body))
+		if err != nil {
+			log.Printf("error writing body: %v", err)
+			return
+		}
 	}
 }
+
+// request 종류에 따라 알 맞은 처리를 하는 Handler 타입 함수
+// func handler(w io.Writer, req *request.Request) *server.HandlerError {
+// 	switch req.RequestLine.RequestTarget {
+// 	case "/yourproblem":
+// 		return &server.HandlerError{
+// 			StatusCode: response.StatusBadRequest,
+// 			Message:    []byte("Your problem is not my problem\n"),
+// 		}
+// 	case "/myproblem":
+// 		return &server.HandlerError{
+// 			StatusCode: response.StatusInternalServerError,
+// 			Message:    []byte("Woopsie, my bad\n"),
+// 		}
+// 	default:
+// 		_, err := w.Write([]byte("All good, frfr\n"))
+// 		if err != nil {
+// 			log.Fatalf("Error writing response body: %v", err)
+// 		}
+// 		return nil
+// 	}
+// }

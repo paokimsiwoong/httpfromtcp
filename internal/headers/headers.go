@@ -155,3 +155,22 @@ func (h Headers) Get(key string) string {
 
 	return h[key]
 }
+
+// key와 value를 받으면 Headers에 그 key,value 페어를 저장하는 메소드
+// 이미 있는 key일 경우에는 덮어쓰지 않고 기존 value와 새 value를 합친다
+func (h Headers) Set(key, value string) {
+	v, ok := h[key]
+	if ok {
+		h[key] = v + ", " + value
+		return
+	}
+
+	h[key] = value
+}
+
+// key와 value를 받으면 Headers에 그 key,value 페어를 저장하는 메소드
+// 이미 있는 key여도 덮어쓴다
+func (h Headers) SetOverride(key, value string) {
+
+	h[key] = value
+}
