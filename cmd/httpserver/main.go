@@ -1,10 +1,13 @@
 package main
 
 import (
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/paokimsiwoong/httpfromtcp/internal/headers"
@@ -109,6 +112,10 @@ func handler(w *response.Writer, req *request.Request) {
 			return
 		}
 	default:
+		if strings.HasPrefix(req.RequestLine.RequestTarget, "/httpbin") {
+			proxyHandler(w, req, headers)
+			return
+		}
 		err := w.WriteStatusLine(response.StatusOK)
 		if err != nil {
 			log.Printf("error writing status line: %v", err)
@@ -138,6 +145,159 @@ func handler(w *response.Writer, req *request.Request) {
 		_, err = w.WriteBody([]byte(body))
 		if err != nil {
 			log.Printf("error writing body: %v", err)
+			return
+		}
+	}
+}
+
+func proxyHandler(w *response.Writer, req *request.Request, headers headers.Headers) {
+	route := strings.TrimPrefix(req.RequestLine.RequestTarget, "/httpbin")
+
+	resp, err := http.Get("https://httpbin.org" + route)
+	if err != nil {
+		log.Printf("error making HTTP request: %v", err)
+		return
+	}
+
+	// status code가 200이 아닌 경우 처리
+	if resp.StatusCode > 499 {
+		err := w.WriteStatusLine(response.StatusInternalServerError)
+		if err != nil {
+			log.Printf("error writing status line: %v", err)
+			return
+		}
+
+		body := `<html>
+  <head>
+    <title>500 Internal Server Error</title>
+  </head>
+  <body>
+    <h1>Internal Server Error</h1>
+    <p>Okay, you know what? This one is on me.</p>
+  </body>
+</html>`
+
+		headers.SetOverride("Content-Length", strconv.Itoa(len(body)))
+		headers.SetOverride("Connection", "close")
+		headers.SetOverride("Content-Type", "text/html")
+
+		err = w.WriteHeaders(headers)
+		if err != nil {
+			log.Printf("error writing headers: %v", err)
+			return
+		}
+
+		_, err = w.WriteBody([]byte(body))
+		if err != nil {
+			log.Printf("error writing body: %v", err)
+			return
+		}
+
+		return
+	}
+	if resp.StatusCode > 399 {
+		err := w.WriteStatusLine(response.StatusBadRequest)
+		if err != nil {
+			log.Printf("error writing status line: %v", err)
+			return
+		}
+
+		body := `<html>
+  <head>
+    <title>400 Bad Request</title>
+  </head>
+  <body>
+    <h1>Bad Request</h1>
+    <p>Your request honestly kinda sucked.</p>
+  </body>
+</html>`
+
+		headers.SetOverride("Content-Length", strconv.Itoa(len(body)))
+		headers.SetOverride("Connection", "close")
+		headers.SetOverride("Content-Type", "text/html")
+
+		err = w.WriteHeaders(headers)
+		if err != nil {
+			log.Printf("error writing headers: %v", err)
+			return
+		}
+
+		_, err = w.WriteBody([]byte(body))
+		if err != nil {
+			log.Printf("error writing body: %v", err)
+			return
+		}
+		return
+	}
+
+	err = w.WriteStatusLine(response.StatusOK)
+	if err != nil {
+		log.Printf("error writing status line: %v", err)
+		return
+	}
+
+	cotentType := resp.Header.Get("Content-Type")
+	headers.SetOverride("Content-Type", cotentType)
+
+	// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+	// @@@ https://httpbin.org/stream/{n} 자체는 Transfer-Encoding 헤더 없음
+	// @@@ 단순히 n개의 JSON response를 보낸다
+	// log.Printf("response headers key Transfer-Encoding value: %v", resp.Header.Get("Transfer-Encoding"))
+	// if resp.Header.Get("Transfer-Encoding") == "chunked" {
+	// 	headers.SetOverride("Transfer-Encoding", "chunked")
+	// } else {
+	// 	// ???
+	// 	log.Printf("error not chunks?: %v", err)
+	// 	return
+	// }
+	// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+	headers.SetOverride("Transfer-Encoding", "chunked")
+
+	err = w.WriteHeaders(headers)
+	if err != nil {
+		log.Printf("error writing headers: %v", err)
+		return
+	}
+
+	// resp.Body.Read 루프
+
+	// 메모리에 올라가는 데이터 Close defer
+	defer resp.Body.Close()
+
+	for {
+		// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+		// buffer := make([]byte, 0, 32)
+		// @@@ Read 메소드는 주어진 []byte 슬라이스의 길이만큼 읽는데
+		// @@@ cap만 32로 하고 길이를 0으로 둬버리면 매번 0 바이트만 읽는다
+		// @@@ ==> buffer := make([]byte, 32) 와 같이 생성
+		// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+		buffer := make([]byte, 1024)
+		n, err := resp.Body.Read(buffer)
+		log.Printf("%v bytes read from the response body", n)
+		if err == io.EOF {
+			if n != 0 {
+				_, err = w.WriteChunkedBody(buffer[:n]) // 실제 데이터가 들어있는 부분까지만 입력
+				if err != nil {
+					log.Printf("error writing a chunk: %v", err)
+					return
+				}
+
+			}
+
+			// resp.Body안의 모든 chunk가 w에 저장되었으므로 w.WriteChunkedBodyDone 실행
+			_, err = w.WriteChunkedBodyDone()
+			if err != nil {
+				log.Printf("error writing a chunk end: %v", err)
+				return
+			}
+
+			break
+		}
+
+		_, err = w.WriteChunkedBody(buffer[:n]) // 실제 데이터가 들어있는 부분까지만 입력
+		if err != nil {
+			log.Printf("error writing a chunk: %v", err)
 			return
 		}
 	}

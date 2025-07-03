@@ -95,6 +95,40 @@ func (w *Writer) WriteBody(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// chunk 데이터 길이와 데이터 자체를 Writer에 저장하는 함수
+func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
+	if w.State != WriterStateHeadersDone {
+		return 0, ErrWriterInvalidState
+	}
+
+	// chunk 길이는 16진법으로 표현 (%x 이용)
+	chunkLen := []byte(fmt.Sprintf("%x", len(p)) + "\r\n")
+
+	// <n>\r\n 부분 입력
+	w.Data = append(w.Data, chunkLen...)
+	// <data of length n>\r\n 부분 입력
+	w.Data = append(w.Data, p...)
+	w.Data = append(w.Data, []byte("\r\n")...)
+
+	return len(chunkLen) + len(p) + 2, nil
+	// w.Data에 추가되는 바이트 길이는 len(chunkLen) + len(p) + len("\r\n")
+}
+
+// chunked encoding이 끝났음을 알리는 마지막줄을 Writer에 저장하는 함수
+func (w *Writer) WriteChunkedBodyDone() (int, error) {
+	if w.State != WriterStateHeadersDone {
+		return 0, ErrWriterInvalidState
+	}
+
+	lastChunk := []byte(fmt.Sprintf("%x", 0) + "\r\n\r\n")
+
+	w.Data = append(w.Data, lastChunk...)
+
+	w.State = WriterStateDone
+
+	return len(lastChunk), nil
+}
+
 // @@@ 구조 변경 @@@
 // Status Line을 주어진 statusCode에 맞게 io.Writer에 작성하는 함수
 // func WriteStatusLine(w io.Writer, statusCode StatusCode) error {
