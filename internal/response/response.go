@@ -132,6 +132,7 @@ func (w *Writer) WriteChunkedBodyDone() (int, error) {
 	return len(lastChunk), nil
 }
 
+// 바디 작성 후에 Trailer에 명시된 헤더들 작성하는 함수
 func (w *Writer) WriteTrailers(h headers.Headers) error {
 	if w.State != WriterStateBodyDone {
 		return ErrWriterInvalidState

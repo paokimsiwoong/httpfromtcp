@@ -188,7 +188,16 @@ func (s *Server) handle(conn net.Conn) {
 
 	n, err := conn.Write(writer.Data)
 	if err != nil {
-		WriteHandlerError(writer, conn, response.StatusInternalServerError, []byte(err.Error()))
+		log.Printf("conn.Write error: %v", err.Error())
+		// @@@ s.handler(writer, req)를 거치고 나면
+		// @@@ 앞에 선언된 writer의 State는 WriterStateDone인 상태
+		// @@@ 새 writer를 만들어야 한다
+		// writer := &response.Writer{
+		// 	State: response.WriterStateInitialized,
+		// }
+		// WriteHandlerError(writer, conn, response.StatusInternalServerError, []byte(err.Error()))
+		// @@@@@@ conn.Write가 에러가 난 경우 (ex: write tcp [::1]:42069->[::1]:43908: write: connection reset by peer)
+		// @@@@@@ 이미 연결이 닫히거나 해서 쓰기가 불가능하므로 WriteHandlerError 안에서 conn.Write를 또하려해도 불가능
 		return
 	}
 

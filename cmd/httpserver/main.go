@@ -50,8 +50,16 @@ func handler(w *response.Writer, req *request.Request) {
 	switch req.RequestLine.RequestTarget {
 	case "/yourproblem":
 		ErrorHandler(w, req, 400)
+		// @@@ ErrorHandler를 쓰면서 바디 내용이 기존의 문제 답변과는 달라짐
 	case "/myproblem":
 		ErrorHandler(w, req, 500)
+		// @@@ ErrorHandler를 쓰면서 바디 내용이 기존의 문제 답변과는 달라짐
+	case "/video":
+		if req.RequestLine.Method == "GET" {
+			videoHandler(w, req, headers)
+			return
+		}
+		ErrorHandler(w, req, 400)
 	default:
 		if strings.HasPrefix(req.RequestLine.RequestTarget, "/httpbin") {
 			proxyHandler(w, req, headers)
@@ -266,6 +274,41 @@ func proxyHandler(w *response.Writer, req *request.Request, headers headers.Head
 
 }
 
+func videoHandler(w *response.Writer, req *request.Request, headers headers.Headers) {
+	err := w.WriteStatusLine(response.StatusOK)
+	if err != nil {
+		log.Printf("error writing status line: %v", err)
+		ErrorHandler(w, req, 500)
+		return
+	}
+
+	data, err := os.ReadFile("assets/vim.mp4")
+	if err != nil {
+		log.Printf("error reading a file into memory: %v", err)
+		ErrorHandler(w, req, 500)
+		return
+	}
+
+	headers.SetOverride("Content-Length", strconv.Itoa(len(data)))
+	headers.SetOverride("Connection", "close")
+	headers.SetOverride("Content-Type", "video/mp4")
+
+	err = w.WriteHeaders(headers)
+	if err != nil {
+		log.Printf("error writing headers: %v", err)
+		ErrorHandler(w, req, 500)
+		return
+	}
+
+	_, err = w.WriteBody(data)
+	if err != nil {
+		log.Printf("error writing body: %v", err)
+		ErrorHandler(w, req, 500)
+		return
+	}
+}
+
+// 400, 500 에러 리스폰스 담당하는 함수
 func ErrorHandler(w *response.Writer, req *request.Request, statusCode int) {
 	w.Data = []byte{}
 
