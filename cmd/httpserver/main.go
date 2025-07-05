@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"log"
 	"net/http"
@@ -47,70 +49,9 @@ func handler(w *response.Writer, req *request.Request) {
 
 	switch req.RequestLine.RequestTarget {
 	case "/yourproblem":
-		err := w.WriteStatusLine(response.StatusBadRequest)
-		if err != nil {
-			log.Printf("error writing status line: %v", err)
-			return
-		}
-
-		body := `<html>
-  <head>
-    <title>400 Bad Request</title>
-  </head>
-  <body>
-    <h1>Bad Request</h1>
-    <p>Your request honestly kinda sucked.</p>
-  </body>
-</html>`
-
-		headers.SetOverride("Content-Length", strconv.Itoa(len(body)))
-		headers.SetOverride("Connection", "close")
-		headers.SetOverride("Content-Type", "text/html")
-
-		err = w.WriteHeaders(headers)
-		if err != nil {
-			log.Printf("error writing headers: %v", err)
-			return
-		}
-
-		_, err = w.WriteBody([]byte(body))
-		if err != nil {
-			log.Printf("error writing body: %v", err)
-			return
-		}
-
+		ErrorHandler(w, req, 400)
 	case "/myproblem":
-		err := w.WriteStatusLine(response.StatusInternalServerError)
-		if err != nil {
-			log.Printf("error writing status line: %v", err)
-			return
-		}
-
-		body := `<html>
-  <head>
-    <title>500 Internal Server Error</title>
-  </head>
-  <body>
-    <h1>Internal Server Error</h1>
-    <p>Okay, you know what? This one is on me.</p>
-  </body>
-</html>`
-
-		headers.SetOverride("Content-Length", strconv.Itoa(len(body)))
-		headers.SetOverride("Connection", "close")
-		headers.SetOverride("Content-Type", "text/html")
-
-		err = w.WriteHeaders(headers)
-		if err != nil {
-			log.Printf("error writing headers: %v", err)
-			return
-		}
-
-		_, err = w.WriteBody([]byte(body))
-		if err != nil {
-			log.Printf("error writing body: %v", err)
-			return
-		}
+		ErrorHandler(w, req, 500)
 	default:
 		if strings.HasPrefix(req.RequestLine.RequestTarget, "/httpbin") {
 			proxyHandler(w, req, headers)
@@ -119,6 +60,7 @@ func handler(w *response.Writer, req *request.Request) {
 		err := w.WriteStatusLine(response.StatusOK)
 		if err != nil {
 			log.Printf("error writing status line: %v", err)
+			ErrorHandler(w, req, 500)
 			return
 		}
 
@@ -139,12 +81,14 @@ func handler(w *response.Writer, req *request.Request) {
 		err = w.WriteHeaders(headers)
 		if err != nil {
 			log.Printf("error writing headers: %v", err)
+			ErrorHandler(w, req, 500)
 			return
 		}
 
 		_, err = w.WriteBody([]byte(body))
 		if err != nil {
 			log.Printf("error writing body: %v", err)
+			ErrorHandler(w, req, 500)
 			return
 		}
 	}
@@ -156,83 +100,28 @@ func proxyHandler(w *response.Writer, req *request.Request, headers headers.Head
 	resp, err := http.Get("https://httpbin.org" + route)
 	if err != nil {
 		log.Printf("error making HTTP request: %v", err)
+		ErrorHandler(w, req, 500)
 		return
 	}
+
+	// 메모리에 올라가는 데이터 Close defer
+	defer resp.Body.Close()
+	// @@@ Go의 http.Response.Body는 chunked 인코딩을 자동으로 해제해서, 읽으면 바로 payload body만 나온다
 
 	// status code가 200이 아닌 경우 처리
 	if resp.StatusCode > 499 {
-		err := w.WriteStatusLine(response.StatusInternalServerError)
-		if err != nil {
-			log.Printf("error writing status line: %v", err)
-			return
-		}
-
-		body := `<html>
-  <head>
-    <title>500 Internal Server Error</title>
-  </head>
-  <body>
-    <h1>Internal Server Error</h1>
-    <p>Okay, you know what? This one is on me.</p>
-  </body>
-</html>`
-
-		headers.SetOverride("Content-Length", strconv.Itoa(len(body)))
-		headers.SetOverride("Connection", "close")
-		headers.SetOverride("Content-Type", "text/html")
-
-		err = w.WriteHeaders(headers)
-		if err != nil {
-			log.Printf("error writing headers: %v", err)
-			return
-		}
-
-		_, err = w.WriteBody([]byte(body))
-		if err != nil {
-			log.Printf("error writing body: %v", err)
-			return
-		}
-
+		ErrorHandler(w, req, 500)
 		return
 	}
 	if resp.StatusCode > 399 {
-		err := w.WriteStatusLine(response.StatusBadRequest)
-		if err != nil {
-			log.Printf("error writing status line: %v", err)
-			return
-		}
-
-		body := `<html>
-  <head>
-    <title>400 Bad Request</title>
-  </head>
-  <body>
-    <h1>Bad Request</h1>
-    <p>Your request honestly kinda sucked.</p>
-  </body>
-</html>`
-
-		headers.SetOverride("Content-Length", strconv.Itoa(len(body)))
-		headers.SetOverride("Connection", "close")
-		headers.SetOverride("Content-Type", "text/html")
-
-		err = w.WriteHeaders(headers)
-		if err != nil {
-			log.Printf("error writing headers: %v", err)
-			return
-		}
-
-		_, err = w.WriteBody([]byte(body))
-		if err != nil {
-			log.Printf("error writing body: %v", err)
-			return
-		}
+		ErrorHandler(w, req, 400)
 		return
 	}
 
 	err = w.WriteStatusLine(response.StatusOK)
 	if err != nil {
 		log.Printf("error writing status line: %v", err)
+		ErrorHandler(w, req, 500)
 		return
 	}
 
@@ -252,19 +141,26 @@ func proxyHandler(w *response.Writer, req *request.Request, headers headers.Head
 	// }
 	// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
+	// @@@ route 상관없이 다 무조건 chunk로 쪼개기 @@@
 	headers.SetOverride("Transfer-Encoding", "chunked")
+
+	headers.SetOverride("Trailer", "X-Content-SHA256, X-Content-Length")
 
 	err = w.WriteHeaders(headers)
 	if err != nil {
 		log.Printf("error writing headers: %v", err)
+		ErrorHandler(w, req, 500)
 		return
 	}
 
+	rawBodyLength := 0
+	// rawBody := []byte{}
+	rawBody := make([]byte, 0)
+	// 위 두 방식은 길이 0, 용량 0
+	// var rawBody []byte
+	// nil 슬라이스, 길이 0, 용량 0
+
 	// resp.Body.Read 루프
-
-	// 메모리에 올라가는 데이터 Close defer
-	defer resp.Body.Close()
-
 	for {
 		// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 		// buffer := make([]byte, 0, 32)
@@ -277,9 +173,13 @@ func proxyHandler(w *response.Writer, req *request.Request, headers headers.Head
 		log.Printf("%v bytes read from the response body", n)
 		if err == io.EOF {
 			if n != 0 {
+				rawBodyLength += n
+				rawBody = append(rawBody, buffer[:n]...)
+
 				_, err = w.WriteChunkedBody(buffer[:n]) // 실제 데이터가 들어있는 부분까지만 입력
 				if err != nil {
 					log.Printf("error writing a chunk: %v", err)
+					ErrorHandler(w, req, 500)
 					return
 				}
 
@@ -289,17 +189,137 @@ func proxyHandler(w *response.Writer, req *request.Request, headers headers.Head
 			_, err = w.WriteChunkedBodyDone()
 			if err != nil {
 				log.Printf("error writing a chunk end: %v", err)
+				ErrorHandler(w, req, 500)
 				return
 			}
 
 			break
 		}
 
+		// 읽어낸 조각 길이와 조각을 따로 저장
+		rawBodyLength += n
+		rawBody = append(rawBody, buffer[:n]...)
+
 		_, err = w.WriteChunkedBody(buffer[:n]) // 실제 데이터가 들어있는 부분까지만 입력
 		if err != nil {
 			log.Printf("error writing a chunk: %v", err)
+			ErrorHandler(w, req, 500)
 			return
 		}
+	}
+
+	hash := sha256.Sum256(rawBody)
+	hashString := hex.EncodeToString(hash[:])
+	// hash는 길이가 정해져있으므로 [:]를 붙여서 []byte 슬라이스로 변환
+	log.Printf("hash string: %s", hashString)
+	log.Printf("raw body length: %d", rawBodyLength)
+
+	headers["X-Content-SHA256"] = hashString
+	headers["X-Content-Length"] = strconv.Itoa(rawBodyLength)
+
+	err = w.WriteTrailers(headers)
+	if err != nil {
+		log.Printf("error writing trailers: %v", err)
+		ErrorHandler(w, req, 500)
+		return
+	}
+
+	// if strings.HasPrefix(route, "/stream") {
+	// } else {
+	// 	headers.SetOverride("Trailer", "X-Content-SHA256, X-Content-Length")
+
+	// 	err = w.WriteHeaders(headers)
+	// 	if err != nil {
+	// 		log.Printf("error writing headers: %v", err)
+	// 		ErrorHandler(w, req, 500)
+	// 		return
+	// 	}
+
+	// 	body, err := io.ReadAll(resp.Body)
+	// 	if err != nil {
+	// 		log.Printf("error reading response body: %v", err)
+	// 		ErrorHandler(w, req, 500)
+	// 		return
+	// 	}
+
+	// 	_, err = w.WriteBody([]byte(body))
+	// 	if err != nil {
+	// 		log.Printf("error writing body: %v", err)
+	// 		ErrorHandler(w, req, 500)
+	// 		return
+	// 	}
+
+	// 	hash := sha256.Sum256(body)
+	// 	hashString := hex.EncodeToString(hash[:])
+	// 	// hash는 길이가 정해져있으므로 [:]를 붙여서 []byte 슬라이스로 변환
+
+	// 	headers["X-Content-SHA256"] = hashString
+	// 	headers["X-Content-Length"] = strconv.Itoa(len(body))
+
+	// 	err = w.WriteTrailers(headers)
+	// 	if err != nil {
+	// 		log.Printf("error writing trailers: %v", err)
+	// 		ErrorHandler(w, req, 500)
+	// 		return
+	// 	}
+	// }
+
+}
+
+func ErrorHandler(w *response.Writer, req *request.Request, statusCode int) {
+	w.Data = []byte{}
+
+	headers := headers.NewHeaders()
+
+	body := ""
+
+	// status code가 200이 아닌 경우 처리
+	if statusCode > 499 {
+		err := w.WriteStatusLine(response.StatusInternalServerError)
+		if err != nil {
+			log.Fatalf("error writing status line: %v", err)
+		}
+
+		body = `<html>
+  <head>
+    <title>500 Internal Server Error</title>
+  </head>
+  <body>
+    <h1>Internal Server Error</h1>
+    <p>Okay, you know what? This one is on me.</p>
+  </body>
+</html>`
+	} else if statusCode > 399 {
+		err := w.WriteStatusLine(response.StatusBadRequest)
+		if err != nil {
+			log.Fatalf("error writing status line: %v", err)
+		}
+
+		body = `<html>
+  <head>
+    <title>400 Bad Request</title>
+  </head>
+  <body>
+    <h1>Bad Request</h1>
+    <p>Your request honestly kinda sucked.</p>
+  </body>
+</html>`
+	} else {
+		log.Fatal("error unknwon error code")
+	}
+
+	headers.SetOverride("Content-Length", strconv.Itoa(len(body)))
+	headers.SetOverride("Connection", "close")
+	headers.SetOverride("Content-Type", "text/html")
+
+	err := w.WriteHeaders(headers)
+	if err != nil {
+		log.Fatalf("error writing headers: %v", err)
+	}
+
+	_, err = w.WriteBody([]byte(body))
+	if err != nil {
+		log.Fatalf("error writing body: %v", err)
 	}
 }
 

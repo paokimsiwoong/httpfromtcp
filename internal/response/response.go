@@ -3,6 +3,7 @@ package response
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/paokimsiwoong/httpfromtcp/internal/headers"
 )
@@ -21,10 +22,12 @@ const (
 	WriterStateInitialized    writerState = 0
 	WriterStateStatusLineDone writerState = 1
 	WriterStateHeadersDone    writerState = 2
-	WriterStateDone           writerState = 3
+	WriterStateBodyDone       writerState = 3
+	WriterStateDone           writerState = 4
 )
 
 var ErrWriterInvalidState = errors.New("you must call the struct's methods in the correct order")
+var ErrWriterNoTrailerHeader = errors.New("you must have Trailer header and its value defined to write trailers")
 
 type Writer struct {
 	Data  []byte
@@ -124,9 +127,41 @@ func (w *Writer) WriteChunkedBodyDone() (int, error) {
 
 	w.Data = append(w.Data, lastChunk...)
 
-	w.State = WriterStateDone
+	w.State = WriterStateBodyDone
 
 	return len(lastChunk), nil
+}
+
+func (w *Writer) WriteTrailers(h headers.Headers) error {
+	if w.State != WriterStateBodyDone {
+		return ErrWriterInvalidState
+	}
+
+	v, ok := h["Trailer"]
+	if !ok {
+		return ErrWriterNoTrailerHeader
+	}
+
+	trailerNames := strings.Split(v, ", ")
+
+	for _, name := range trailerNames {
+		header := ""
+
+		header += name
+
+		header += ": "
+
+		header += h[name] + "\r\n"
+
+		w.Data = append(w.Data, []byte(header)...)
+	}
+
+	// headers 맵 순회가 끝나면 헤더 블록이 끝났다고 알리는 \r\n를 마지막으로 쓰고 종료
+	w.Data = append(w.Data, []byte("\r\n")...)
+
+	w.State = WriterStateDone
+
+	return nil
 }
 
 // @@@ 구조 변경 @@@
